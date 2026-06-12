@@ -1,0 +1,134 @@
+%Natural numbers in Beluga (3-2 in TAPL)
+
+tm : type.
+
+true : tm.
+false : tm.
+ift : tm → tm → tm → tm.
+z : tm.
+succ : tm → tm.
+pred : tm → tm.
+iszero : tm → tm.
+
+value : tm → type.
+
+v/z : value z.
+v/succ : value t → value (succ t).
+v/true : value true.
+v/false : value false.
+
+%single step relation
+
+↦ : tm → tm → type.
+
+--infix ↦ right.
+
+↦/iftrue : ift true t1 t2 ↦ t1.
+↦/iftfalse : ift false t1 t2 ↦ t2.
+↦/ift : t ↦ t' → ift t t1 t2 ↦ ift t' t1 t2.
+↦/succ : t ↦ t' → succ t ↦ succ t'.
+↦/predz : pred z ↦ z.
+↦/predsucc : value v → pred (succ v) ↦ v.
+↦/pred :  t ↦ t' → pred t ↦ pred t'.
+↦/iszero/z : iszero z ↦ true.
+↦/iszero/s : value v → iszero (succ v) ↦ false.
+↦/iszero : t ↦ t' → iszero t ↦ iszero t'.
+
+eq : tm → tm → type.
+eq/i : eq t t.
+
+⊥ : type. %question: in what way does ⊥ represent falsehood?
+% Answer: ⊥ is declared as a type with no constructor, and so there's no
+% way to build a term of that type (i.e. it's uninhabited and thus false
+% under Curry-Howard)
+
+%values are normal, i.e. they do not step.
+
+rec valuenostep : [⊢ value t] → [⊢ t ↦ t'] → [⊢ ⊥] =
+/ total 1 /
+fn V D ⇒
+case V of
+  | [⊢ v/z] ⇒ impossible D
+  | [⊢ v/true] ⇒ impossible D
+  | [⊢ v/false] ⇒ impossible D
+%challenge: complete this proof
+  | [⊢ v/succ V'] ⇒ let [⊢ ↦/succ D'] = D in valuenostep [⊢ V'] [⊢ D']
+;
+
+%the single step is deterministic
+
+rec determinancy : [⊢ t ↦ t'] → [⊢ t ↦ t''] → [⊢ eq t' t''] =
+/ total 1 /
+fn D E ⇒
+case D of
+  | [⊢ ↦/iftrue] ⇒ let [⊢ ↦/iftrue] = E in [⊢ eq/i]
+  %challenge: complete this base case
+  | [⊢ ↦/iftfalse] ⇒ let [⊢ ↦/iftfalse] = E in [⊢ eq/i]
+  | [⊢ ↦/ift D'] ⇒ let [⊢ ↦/ift E'] = E in
+           let [⊢ eq/i] = determinancy [⊢ D'] [⊢ E'] in
+           [⊢ eq/i]
+  | [⊢ ↦/succ D'] ⇒  let [⊢ ↦/succ E'] = E in
+             let [⊢ eq/i] = determinancy [⊢ D'] [⊢ E'] in
+             [⊢ eq/i]
+  | [⊢ ↦/predz] ⇒  let [⊢ ↦/predz] = E in [⊢ eq/i]
+  | [⊢ ↦/predsucc V] ⇒ ( case E of
+             | [⊢ ↦/predsucc V] ⇒ [⊢ eq/i]
+             | [⊢ ↦/pred E'] ⇒
+                   impossible (valuenostep [⊢ v/succ V] [⊢ E'])
+               )
+  | [⊢ ↦/pred D'] ⇒  (case E of
+               %challenge: complete this missing case
+               | [⊢ ↦/predsucc V] ⇒
+                   impossible (valuenostep [⊢ v/succ V] [⊢ D'])
+               | [⊢ ↦/pred E'] ⇒
+                 let [⊢ eq/i] = determinancy [⊢ D'] [⊢ E'] in
+                 [⊢ eq/i]
+             )
+  | [⊢ ↦/iszero/z] ⇒ let [⊢ ↦/iszero/z] = E in [⊢ eq/i]
+
+  | [⊢ ↦/iszero/s V] ⇒ ( % challenge: complete this missing case 
+      case E of
+        | [⊢ ↦/iszero/s V] ⇒ [⊢ eq/i]
+        | [⊢ ↦/iszero E'] ⇒ impossible (valuenostep [⊢ v/succ V] [⊢ E'])
+      )
+  %challenge: complete the last case!
+  | [⊢ ↦/iszero D'] ⇒ ( 
+      case E of
+        | [⊢ ↦/iszero/s V] ⇒ impossible (valuenostep [⊢ v/succ V] [⊢ D'])
+        | [⊢ ↦/iszero E'] ⇒ 
+            let [⊢ eq/i] = determinancy [⊢ D'] [⊢ E'] in
+            [⊢ eq/i]
+        )
+;
+
+↦* : tm → tm → type.
+
+--infix ↦* right.
+
+↦*/s : t ↦ t' → t ↦* t'.
+↦*/i : t ↦* t.
+↦*/t : t ↦* t' → t' ↦* t'' → t ↦* t''.
+
+
+⇓ : tm → tm → type.
+
+--infix ⇓ right.
+
+⇓/v : value v → v ⇓ v.
+⇓/ift/t : value v → t1 ⇓ true → t2 ⇓ v
+      → ift t1 t2 t3 ⇓ v.
+⇓/ift/f : value v → t1 ⇓ false → t3 ⇓ v
+      → ift t1 t2 t3 ⇓ v.
+⇓/succ : value v → t1 ⇓ v
+     → succ t ⇓ succ v.
+⇓/predz : t ⇓ z → pred t ⇓ z.
+⇓/predsucc : value v → t ⇓ succ v → pred t ⇓ v.
+⇓/iszero/z : t ⇓ z → iszero t ⇓ true.
+⇓/iszero/s : value v → t ⇓ succ v → iszero t ⇓ false.
+
+%challenge: prove the following:
+
+%rec bigtolittle :  [⊢ t ⇓ v] → [⊢ t ↦* v] = ?;
+
+% See section 3.4 of the companion book for a detailed solution
+
