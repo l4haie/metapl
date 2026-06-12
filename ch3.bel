@@ -108,7 +108,7 @@ case D of
 ⇓/v : value v → v ⇓ v.
 ⇓/ift/t : value v → t1 ⇓ true → t2 ⇓ v
 	  → ift t1 t2 t3 ⇓ v.
-⇓/ift/t : value v → t1 ⇓ false → t3 ⇓ v
+⇓/ift/f : value v → t1 ⇓ false → t3 ⇓ v
 	  → ift t1 t2 t3 ⇓ v.
 ⇓/succ : value v → t1 ⇓ v
 	 → succ t ⇓ succ v.
