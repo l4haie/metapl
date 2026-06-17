@@ -1,0 +1,153 @@
+
+
+%terms
+LF tm : type = 
+| true : tm 
+| false : tm 
+| z : tm 
+| succ : tm → tm 
+| pred : tm → tm
+| ift :  tm → tm → tm → tm 
+| iszero : tm → tm 
+
+;
+
+
+%This stepping relation is identical to last week, just a slightly different shape.
+LF step : tm → tm → type = 
+| s/iftrue : step (ift true t1 t2) (t1)
+| s/iftfalse : step (ift false t1 t2) (t2)
+| s/ift : step (t) (t') → step (ift t t1 t2) (ift t' t1 t2)
+| s/succ : step (t) (t') → step (succ t) (succ t')
+| s/predz : step (pred z) (z)
+| s/predsucc : step (pred (succ t)) (t)
+| s/pred : step (t) (t') → step (pred t) (pred t')
+| s/iszeroz : step (iszero z) (true)
+| s/iszeros : step (iszero (succ t)) (false)
+| s/iszero : step (t) (t') → step (iszero t) (iszero t')
+
+;
+
+%types
+LF tp : type =
+| bool : tp
+| nat : tp
+
+;
+
+%typing relation as seen in Pierce
+
+LF hastype : tm → tp → type = 
+| t/true : hastype true bool
+| t/false : hastype false bool
+| t/ift : hastype M1 bool → hastype M2 T → hastype M3 T → hastype (ift M1 M2 M3) T
+| t/z : hastype z nat
+| t/succ : hastype M nat → hastype (succ M) nat
+| t/pred : hastype M nat → hastype (pred M) nat
+| t/iszero : hastype M nat → hastype (iszero M) bool
+
+;
+
+%values
+LF value : tm → type = 
+| v/t : value true
+| v/f : value false
+| v/z : value z
+| v/succ : value t → value (succ t)
+
+;
+
+%Type preservation: if t : T and t ↦t' then t' : T
+rec preservation :  [⊢ hastype m T] → [⊢ step m n] → [⊢ hastype n T] = 
+/ total 2 /
+fn D ⇒ fn E ⇒
+case E of 
+    | [⊢ s/iftrue] ⇒ let [⊢ t/ift T1 T2 T3] = D in [⊢ T2]
+    | [⊢ s/iftfalse]⇒ let [⊢ t/ift T1 T2 T3] = D in [⊢ T3]
+    | [⊢ s/ift E'] ⇒ let [⊢ t/ift T1 T2 T3] = D in 
+                    let [⊢ G] = preservation [⊢ T1] [⊢ E'] in [⊢ t/ift G T2 T3]
+    | [⊢ s/succ E'] ⇒ let [⊢ t/succ T1] = D in
+                    let [⊢ G] = preservation [⊢ T1] [⊢ E'] in [⊢ t/succ G]
+    | [⊢ s/predz]⇒ let [⊢ t/pred _] = D in [⊢ t/z]
+    | [⊢ s/predsucc]⇒ ? %Fill in this case! 
+    | [⊢ s/pred E'] ⇒ let [⊢ t/pred T1] = D in
+                        let [⊢ D'] = preservation [⊢ T1 ] [⊢ E'] in [⊢ t/pred D']
+    | [⊢ s/iszeroz]⇒ let [⊢ t/iszero _] = D in [⊢ t/true]
+    | [⊢ s/iszeros]⇒ let [⊢ t/iszero _] = D in [⊢ t/false]
+    | [⊢ s/iszero E'] ⇒ % And this one too! 
+
+;
+%Q: Why do we need these?
+%canonical forms 
+LF cbool : tm → type =
+| c/true : cbool true
+| c/false : cbool false
+
+;
+
+LF cnat : tm → type =
+| c/z : cnat z
+| c/succ : value t → cnat (succ t)
+
+;
+
+rec canonical_bool : [⊢ value t] → [⊢ hastype t bool] → [⊢ cbool t] =
+/ total 1 /
+fn V ⇒ fn D ⇒
+case V of
+  | [⊢ v/t] ⇒ let [⊢ t/true] = D in [⊢ c/true]
+  | [⊢ v/f] ⇒ let [⊢ t/false] = D in [⊢ c/false]
+  | [⊢ v/z] ⇒ impossible D
+  | [⊢ v/succ _] ⇒ impossible D
+
+;
+
+rec canonical_nat : [⊢ value t] → [⊢ hastype t nat] → [⊢ cnat t] =
+/ total 1 /
+fn V ⇒ fn D ⇒
+case V of
+  | [⊢ v/t] ⇒ impossible D
+  | [⊢ v/f] ⇒ impossible D
+  | [⊢ v/z] ⇒ let [⊢ t/z] = D in [⊢ c/z]
+  | [⊢ v/succ V'] ⇒ let [⊢ t/succ _] = D in [⊢ c/succ V']
+
+;
+
+%Helper predicate for progress. As with the theorem statement progress holds if the term is either a value or steps to some other term.
+LF prog: tm → type = 
+| p/v : value t → prog t 
+| p/s : step t t' → prog t
+
+;
+
+rec progress: [⊢ hastype m T] → [⊢ prog m] = 
+/ total 1 /  
+fn D ⇒ 
+case D of 
+    | [⊢ t/true] ⇒ [⊢ p/v (v/t)]
+    | [⊢ t/false] ⇒ [⊢ p/v (v/f)]
+    | [⊢ t/ift T1 T2 T3] ⇒ (let [⊢ P] = progress [⊢ T1] in
+        case [⊢ P] of
+          | [⊢ p/v V] ⇒ (
+              let [⊢ C] = canonical_bool [⊢ V] [⊢ T1] in ? %What goes here?
+            )
+          | [⊢ p/s E] ⇒ [⊢ p/s (s/ift E)]
+      )
+    | [⊢ t/z] ⇒ [⊢ p/v (v/z)]
+    | [⊢ t/succ T1] ⇒ (let [⊢ P] = progress [⊢ T1] in
+        case [⊢ P] of
+          | [⊢ p/v V] ⇒ [⊢ p/v (v/succ V)]
+          | [⊢ p/s E] ⇒ [⊢ p/s (s/succ E)]
+      )
+    | [⊢ t/pred T1] ⇒ (let [⊢ P] = progress [⊢ T1] in
+        case [⊢ P] of
+          | [⊢ p/v V] ⇒ (
+              let [⊢ C] = canonical_nat [⊢ V] [⊢ T1] in
+              case [⊢ C] of
+                | [⊢ c/z] ⇒ [⊢ p/s s/predz]
+                | [⊢ c/succ V'] ⇒ [⊢ p/s s/predsucc]
+            )
+          | [⊢ p/s E] ⇒ [⊢ p/s (s/pred E)]
+      )
+    | [⊢ t/iszero T1] ⇒? %Try this case! 
+;
