@@ -1,0 +1,97 @@
+%untyped lambda calculus
+LF tm : type = 
+| i : tm
+| app : tm → tm → tm
+| lam : (tm → tm) → tm
+
+;
+
+LF value : tm → type = 
+| v/lam : value (lam M)
+
+;
+
+LF step : tm → tm → type = 
+| c/app1 : step M M' → step (app M N) (app M' N)
+| c/app2 : step N N' → value (M) → step (app M N) (app M N') %Does this proof of a value add anything to our semantics?
+| a/app : value V → step (app (lam M) V) (M V) %Q: Why does this rule work for function application?
+
+;
+
+%prove these! its the church encoding for true ∧ false, we're proving it steps to false. Also if you want to work it out on paper first, the more human readable lambda term: ((λp.λq. p q p) λx.λy.x) λx.λy.y
+rec q1 : [⊢ step (app (app (lam \p. (lam \q. (app (app p q) p))) (lam \x. (lam \y. x))) (lam \w. (lam \z. z)))
+				  (app (lam \q. (app (app (lam \x. (lam \y. x)) q) (lam \x. (lam \y. x)))) (lam \w. (lam \z. z)))]
+	= ?;
+
+rec q2 : [⊢ step (app (lam \q. (app (app (lam \x. (lam \y. x)) q) (lam \x. (lam \y. x)))) (lam \w. (lam \z. z)))
+		    (app (app (lam \x. (lam \y. x)) (lam \w. (lam \z. z))) (lam \x. (lam \y. x)))]
+	= ?;
+
+rec q3 : [⊢ step (app (app (lam \x. (lam \y. x)) (lam \w. (lam \z. z))) (lam \x. (lam \y. x)))
+		    (app (lam \y. (lam \w. (lam \z. z))) (lam \x. (lam \y. x)))]
+	= ?;
+
+rec q4 : [⊢ step (app (lam \y. (lam \w. (lam \z. z))) (lam \x. (lam \y. x)))
+		    (lam \w. (lam \z. z))]
+	= ?;
+%Sorry, that was a bit arduous. No need to do all of it if you get the gist.
+
+%We'll prove uniqueness again:
+⊥ : type.
+
+LF eq : tm → tm → type = 
+| eq/i : eq T T
+
+;
+
+%We have now found the most trivial proof we've covered so far, I think. No need to pattern match!
+rec value_no_step : [⊢ step M M'] → [⊢ value M] → [⊢ ⊥] = 
+fn D E ⇒ let [⊢ v/lam] = E in impossible D 
+;
+
+rec unique : [⊢ step M M'] → [⊢ step M N] → [⊢ eq M' N] = 
+fn D E ⇒
+case D of 
+	| [⊢ c/app1 D'] ⇒ (case E of
+							| [⊢ c/app1 E'] ⇒ let [⊢ eq/i] = unique [⊢ D'] [⊢ E'] in [⊢ eq/i]
+							| [⊢ c/app2 E' V] ⇒ impossible (value_no_step [⊢ D'] [⊢ V])
+							| [⊢ a/app _] ⇒ impossible (value_no_step [⊢ D'] [⊢ v/lam])
+						)
+
+	| [⊢ c/app2 D' V] ⇒ (case E of
+							| [⊢ c/app1 E'] ⇒ impossible (value_no_step [⊢ E'] [⊢ V])
+							| [⊢ c/app2 E' _] ⇒?  %Tryt his one 
+							| [⊢ a/app V'] ⇒ impossible (value_no_step [⊢ D'] [⊢ V'])
+						)
+	| [⊢ a/app V] ⇒ ? % Try this case! 
+
+;
+
+%Try converting the step encoding to fit call-by-value semantics!
+
+%Finally, writing deBruijin indices (though this is kinda perfunctory in Beluga)
+
+schema ctx = tm; %Q: Why do we need this now?
+
+LF dB : type = 
+| one : dB
+| shift : dB → dB
+| lam' : dB → dB
+| app' : dB → dB → dB
+
+;
+
+%now for conversions
+
+rec vhoas2db : {Γ : ctx} {#p : #[Γ ⊢ tm]} → [⊢ dB] = 
+mlam Γ ⇒ mlam #p ⇒ case [Γ] of
+	| [] ⇒ impossible [⊢ #p]
+	| [Γ', x: tm ] ⇒ (case [Γ', x : tm ⊢ #p] of
+		| [Γ', x : tm ⊢ x] ⇒ [⊢ one]
+		| [Γ', x : tm ⊢ #q[..]] ⇒ let [⊢ D] = vhoas2db [Γ'] [Γ' ⊢ #q] in [⊢ shift D]
+	)
+
+;
+
+rec hoas2db : (Γ : ctx) [Γ ⊢ tm] → [⊢ dB] =  ? %Try filling this one yourself!
+;
