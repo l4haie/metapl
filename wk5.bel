@@ -1,0 +1,99 @@
+% MTLPLMMSS'26 (Montreal's Programming Languages and Mechanized Metatheory Summer
+% School 2026) -- Week 5 -- Simply Type Lambda Calculus
+
+% I'll push the solution file on Friday morning
+
+
+LF tm : type =
+  % | var: tm
+  | app : tm → tm → tm
+  | lam : (tm → tm) → tm % reminder that (tm → tm) is an actual LF function
+;
+
+LF value : tm → type =
+  | v/lam : value (lam M)
+;
+
+LF step : tm → tm → type =
+  | e/app1 : step M M'
+             → step (app M N) (app M' N)
+  | e/app2 : value V → step N N'
+             → step (app V N) (app V N')
+  | e/abs  : value V
+             → step (app (lam M) V) (M V)
+;
+
+LF tp: type = 
+  | arr  : tp -> tp -> tp 
+;
+
+LF hastype: tm -> tp -> type =
+  | t/lam : ({x:tm} hastype x T → hastype (M x) S) 
+            → hastype (lam M) (arr T S)
+  | t/app : hastype M (arr T S) → hastype N T
+            → hastype (app M N) S
+;
+
+
+% ------------------------------------------------------------------------------
+% Type Preservation & Progress
+% ------------------------------------------------------------------------------
+
+% TODO Type preservation
+% I assume most of you can read. Fill-up this proof following the companion
+% book (after attempting it on your own first, naturally)
+
+% THM (Preservation): If D ∷ M : T and E ∷ M → N, then N : T
+rec preservation : [⊢ hastype M T] → [⊢ step M N] → [⊢ hastype N T] =
+/ total 2 /
+fn D ⇒ fn E ⇒ case E of
+  | [⊢ e/app1 E'] ⇒ ?
+  | [⊢ e/app2 _ E'] ⇒ ?
+  | [⊢ e/abs V] ⇒ ?
+;
+
+
+% TODO Type progress
+% The proof is similar to the one we did 2 weeks ago for our simple language,
+% except M must now be closed... how do we account for that in Beluga?
+
+% THM (Progress): if ⊢ M : T,  then M is a value or M steps
+% rec progress : ...
+
+
+% ------------------------------------------------------------------------------
+% Type Uniqueness
+% ------------------------------------------------------------------------------
+
+% λ-terms with type annotation
+LF tm : type =
+  | app : tm → tm → tm
+  | lam : tp → (tm → tm) → tm
+;
+
+LF hastype: tm -> tp -> type =
+  | t/lam : ({x:tm}hastype x T → hastype (M x) S) 
+            → hastype (lam T M) (arr T S)
+  | t/app : hastype M (arr T S) → hastype N T
+            → hastype (app M N) S
+;
+
+LF eq: tp -> tp -> type = 
+  | ref: eq T T
+;
+
+schema tctx = some [t:tp] block (x:tm, u:hastype x t);
+
+% TODO Type uniqueness
+% Fill-up the proof for type uniqueness following the companion book. I'll
+% spend a bit more time on this proof since it introduces some constructs
+% and ideas that we haven't discussed thus far
+
+% THM (Uniqueness): If D ∷ Γ ⊢ M : T and E ∷ Γ ⊢ M : T', then T = T'
+rec unique : (Γ:tctx)[Γ ⊢ hastype M T[]] → [Γ ⊢ hastype M T'[]] → [⊢ eq T T'] =
+/ total 1 /
+fn D ⇒ fn E ⇒ case D of
+  | [Γ ⊢ t/app D1 D2] ⇒ ?
+  | [Γ ⊢ t/lam \x. \u. D'] ⇒ ?
+  | [Γ ⊢ #q.2] ⇒ ? 
+;
