@@ -1,0 +1,176 @@
+% MTLPLMMSS'26 (Montreal's Programming Languages and Mechanized Metatheory Summer
+% School 2026) -- Week 5 -- Simply Type Lambda Calculus -- Solution
+
+
+% To confirm / discuss: No var constructor because object-language variables are
+% represented as LF-level variables in HOAS (the `\x.` binder inside a `lam`)
+LF tm : type =
+  % | var: tm 
+  | app : tm → tm → tm
+  | lam : (tm → tm) → tm % reminder that (tm → tm) is an actual LF function
+;
+
+LF value : tm → type =
+  | v/lam : value (lam M)
+;
+
+LF step : tm → tm → type =
+  | e/app1 : step M M'
+             → step (app M N) (app M' N)
+  | e/app2 : value V → step N N'
+             → step (app V N) (app V N')
+  | e/abs  : value V
+             → step (app (lam M) V) (M V) % (M V) is an LF application 
+;
+
+LF tp: type =
+  | nat : tp
+  | arr  : tp -> tp -> tp
+;
+
+% Typing relation (implicit context, Gentzen-style)
+% Note that the premise of T-ABS (i.e. of `t/lam`) is encoded as an LF function
+LF hastype: tm -> tp -> type =
+  | t/lam : ({x:tm} hastype x T → hastype (M x) S) % M : tm → tm ⇒ (M x) : tm
+            → hastype (lam M) (arr T S)
+  | t/app : hastype M (arr T S) → hastype N T
+            → hastype (app M N) S
+;
+
+
+% ------------------------------------------------------------------------------
+% Type Preservation
+% ------------------------------------------------------------------------------
+
+% The on-paper proof is included to make the translation to Beluga explicit for
+% this one, because why not:
+
+% THM (Preservation): If D ∷ ⊢ M : T and E ∷ ⊢ M → N, then ⊢ N : T
+rec preservation : [⊢ hastype M T] → [⊢ step M N] → [⊢ hastype N T] =
+/ total 2 /
+fn D ⇒ fn E ⇒
+% Proof: By structural induction on the derivation E (hence the `total 2`)
+case E of 
+  %                 E'
+  %               M → M'
+  % Case E = ---------------- E-APP1
+  %           (M N) → (M' N)
+  %
+  %  D  ∷ ⊢ (M N) : T      by assumption
+  %  D1 ∷ ⊢ M : (S → T)
+  %  D2 ∷ ⊢ N : T          by inversion lemma using T-APP (1)
+  %  D' ∷ ⊢ M' : (S → T)   by I.H. using D1 and E'        (2)
+  %     ∷ ⊢ (M' N) : T     by rule T-APP using D' and D2  (3)
+  | [⊢ e/app1 E'] ⇒ 
+      let [⊢ t/app D1 D2] = D in                 % (1)
+      let [⊢ D'] = preservation [⊢ D1] [⊢ E'] in % (2)
+      [⊢ t/app D' D2]                            % (3)
+  %              _         E'
+  %           V value    N → N'
+  % Case E = ------------------ E-APP2
+  %            (V N) → (V N')
+  %
+  %  D  ∷ ⊢ (V N) : T    by assumption
+  %  D1 ∷ ⊢ V : (S → T)
+  %  D2 ∷ ⊢ N : T        by inversion lemma using T-APP (1)
+  %  D' ∷ ⊢ N' : T       by I.H. using D2 and E'        (2)
+  %     ∷ ⊢ (V N') : T   by rule T-APP using D1 and D'  (3)
+  | [⊢ e/app2 _ E'] ⇒
+      let [⊢ t/app D1 D2] = D in                 % (1)
+      let [⊢ D'] = preservation [⊢ D2] [⊢ E'] in % (2)
+      [⊢ t/app D1 D']                            % (3)
+  %                    V
+  %                 V value
+  % Case E = -------------------- E-APP-ABS
+  %           (λx.M) V → [V/x] M
+  %
+  %  D  ∷ ⊢ hastype ((λx.M) V) T            by assumption
+  %  D1 ∷ ⊢ hastype (λx. M) (S → T)
+  %  D2 ∷ ⊢ hastype V S                     by inversion lemma using T-APP (1)
+  %  D' ∷ x, u: hastype x S ⊢ hastype M T   by inversion on D1 using T-ABS (2)
+  %     ∷ ⊢ hastype ([V/x] M) T             by substitution lemma using V and D2 in D' (3)
+  | [⊢ e/abs V] ⇒
+      let [⊢ t/app (t/lam \x. \u. D') D2] = D in % (1) & (2)
+      % `D'` is the contextual type `[x:tm, u:hastype x S ⊢ hastype (M x) T]`
+      % so the substitution produces `[⊢ hastype (M V) T]`
+      [⊢ D'[_, D2]]                              % (3)
+;
+
+
+% ------------------------------------------------------------------------------
+% Type Progress
+% ------------------------------------------------------------------------------
+
+% Note that we don't need a canonical forms lemma here: since `value` has only
+% one constructor (`v/lam`), we can pattern match on it directly in the case
+% branch without needing a separate lemma to extract its shape
+
+% Progress predicate
+LF prog : tm → type =
+  | p/val  : value V → prog V
+  | p/step : step M N → prog M
+;
+
+% THM (Progress): If D ∷ ⊢ t : T, then either t is a value or there is some t
+% such that t → t'
+rec progress : [⊢ hastype M T] → [⊢ prog M] =
+/ total 1 /
+fn D ⇒ case D of
+  | [⊢ t/lam \x. \u. D'] ⇒ [⊢ p/val v/lam]
+  | [⊢ t/app D1 D2] ⇒ (
+      let [⊢ P1] = progress [⊢ D1] in
+      case [⊢ P1] of
+        | [⊢ p/val v/lam] ⇒ ( % we destructure V1 directly here
+            let [⊢ P2] = progress [⊢ D2] in
+            case [⊢ P2] of
+              | [⊢ p/val V2] ⇒ [⊢ p/step (e/abs V2)]
+              | [⊢ p/step E] ⇒ [⊢ p/step (e/app2 v/lam E)] 
+          )
+        | [⊢ p/step E] ⇒ [⊢ p/step (e/app1 E)]
+    )
+;
+
+
+% ------------------------------------------------------------------------------
+% Type Uniqueness
+% ------------------------------------------------------------------------------
+
+% λ-terms with type annotation
+LF tm : type =
+  | app : tm → tm → tm
+  | lam : tp → (tm → tm) → tm % lam : (tm → tm) → tm
+;
+
+% Typing relation with explicit context
+LF hastype: tm -> tp -> type =
+  | t/lam : ({x:tm}hastype x T → hastype (M x) S) 
+            → hastype (lam T M) (arr T S) % → hastype (lam M) (arr T S)
+  | t/app : hastype M (arr T S) → hastype N T
+            → hastype (app M N) S
+;
+
+LF eq: tp -> tp -> type = 
+  | refl: eq T T
+;
+
+schema tctx = some [t:tp] block (x:tm, u:hastype x t);
+
+% THM (Uniqueness): If D ∷ Γ ⊢ M : T and E ∷ Γ ⊢ M : T', then ⊢ T = T'
+rec unique : (Γ:tctx)[Γ ⊢ hastype M T[]] → [Γ ⊢ hastype M T'[]] → [⊢ eq T T'] =
+/ total 1 /
+fn D ⇒ fn E ⇒ case D of
+  | [Γ ⊢ t/app D1 D2] ⇒
+      let [Γ ⊢ t/app E1 E2] = E in
+      let [⊢ refl] = unique [Γ ⊢ D1] [Γ ⊢ E1] in
+      [⊢ refl]
+          
+  | [Γ ⊢ t/lam \x. \u. D'] ⇒
+      let [Γ ⊢ t/lam \x. \u. E'] = E in
+      let [⊢ refl] = unique [Γ, b:block(x:tm, u:hastype x _) ⊢ D'[.., b.1, b.2]]
+                            [Γ, b ⊢ E'[.., b.1, b.2]] in
+      [⊢ refl]
+          
+  | [Γ ⊢ #q.2] ⇒
+      let [Γ ⊢ #r.2] = E in
+      [⊢ refl]
+;
