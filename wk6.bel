@@ -1,0 +1,218 @@
+% MTLPLMMSS'26 (Montreal's Programming Languages and Mechanized Metatheory Summer
+% School 2026) -- Week 6 -- Simply Type Lambda Calculus
+
+
+% TODO I've added the language extensions from ex4.1-4.4
+% They each behave relatively similarly to lambdas and applications,
+% so the trick will be to decern where their differences arise in the proofs.
+% I've also included ex4.5 at the end (proof that small step semantics yield deterministic results)
+
+LF tm : type =
+  | zero : tm                               % 0
+  | succ : tm → tm                          % \x. x + 1
+  | app : tm → tm → tm                      % app t t'
+  | lam : (tm → tm) → tm                    % lam \x. t
+  | let-value : tm → (tm → tm) -> tm        % let-value N \x. t
+  | let-name : tm → (tm → tm) -> tm         % let-name N \x. t
+  | match : (tm → tm → tm → tm → tm) → tm   % match \x. \y. \a. \b. (if x == y then a else b)
+  | fix : (tm → tm) → tm                    % fix \x. t
+;
+
+LF value : tm → type =
+  | v/zero : value zero
+  | v/succ : value t → value (succ t)
+  | v/lam : value (lam M)
+;
+
+LF step : tm → tm → type =
+  | e/app1 : step M M'
+             → step (app M N) (app M' N)
+  | e/app2 : value V → step N N'
+             → step (app V N) (app V N')
+  | e/abs  : value V
+             → step (app (lam M) V) (M V)
+  % note the difference between let-value and let-name
+  % let-value steps bound term to value before substitution
+  % let-name simply substitutes the whole term
+  | e/let-value : step N N'
+                  → step (let-value N M) (let-value N' M)
+  | e/let-value-beta : value V
+                       → step (let-value V M) (M V)
+  | e/let-name-beta : step (let-name N M) (M N)
+  | e/match-beta1 : value V → value V
+                    → step (match V V N M) N
+  | e/match-beta2 : value V → value W
+                    → step (match V W N M) M
+  % to achieve substitution pass term to function M
+  % [x -> (fix (lam M))]N where λx.N = M
+  | e/fix-beta : step (fix (lam M)) (M (fix (lam M)))
+  | e/fix : step M M'
+            → step (fix M) (fix M')
+
+;
+
+LF tp: type =
+  | nat : tp
+  | arr  : tp -> tp -> tp
+;
+
+LF hastype: tm -> tp -> type =
+  | t/lam : ({x:tm} hastype x T → hastype (M x) S)
+            → hastype (lam M) (arr T S)
+  | t/app : hastype M (arr T S) → hastype N T
+            → hastype (app M N) S
+  % let-value and let-name differ in evaluation strategy, but not in typing
+  | t/let-value : ({x:tm} hastype x T → hastype (M x) S)
+                  → hastype (let-value N M) S
+  | t/let-name : ({x:tm} hastype x T → hastype (M x) S)
+                 → hastype (let-name N M) S
+  % the companion text said match on numbers, (although it seems one could trivially match on any value--maybe I'm wrong though)
+  % hence the restriction that only match terms must take 2 nat's
+  % additionally note that both case terms must have the same type
+  | t/match : hastype M1 nat → hastype M2 nat → hastype M3 T → hastype M4 T
+              → hastype (match M1 M2 M3 M4) T
+  % for the sake of discussion letting λx.N = M,
+  % fix works by substituting all instances of x in N with (fix M)
+  % hence x and (fix M) are of the same type
+  % but also (fix M) and M (fix M) are of the same type, as the former steps to the latter
+  % so this is the only reasonable typing rule
+  | t/fix : hastype M (arr T T)
+            → hastype (fix M) T
+;
+
+% ------------------------------------------------------------------------------
+% Type Preservation
+% ------------------------------------------------------------------------------
+
+% THM (Preservation): If D ∷ ⊢ M : T and E ∷ ⊢ M → N, then ⊢ N : T
+rec preservation : [⊢ hastype M T] → [⊢ step M N] → [⊢ hastype N T] =
+/ total 2 /
+fn D ⇒ fn E ⇒
+case E of
+  | [⊢ e/app1 E'] ⇒
+      let [⊢ t/app D1 D2] = D in
+      let [⊢ D'] = preservation [⊢ D1] [⊢ E'] in
+      [⊢ t/app D' D2]
+  | [⊢ e/app2 _ E'] ⇒
+      let [⊢ t/app D1 D2] = D in
+      let [⊢ D'] = preservation [⊢ D2] [⊢ E'] in
+      [⊢ t/app D1 D']
+  | [⊢ e/abs V] ⇒
+      let [⊢ t/app (t/lam \x. \u. D') D2] = D in
+      [⊢ D'[_, D2]]
+  % TODO complete me
+  | [⊢ e/let-value] ?
+  | [⊢ e/let-value-beta] ?
+  | [⊢ e/let-name-beta] ?
+  | [⊢ e/match-beta1] ?
+  | [⊢ e/match-beta2] ?
+  | [⊢ e/fix-beta] ?
+  | [⊢ e/fix] ?
+;
+
+
+% ------------------------------------------------------------------------------
+% Type Progress
+% ------------------------------------------------------------------------------
+
+% TODO add canonical forms lemma
+
+% Progress predicate
+LF prog : tm → type =
+  | p/val  : value V → prog V
+  | p/step : step M N → prog M
+;
+
+% THM (Progress): If D ∷ ⊢ t : T, then either t is a value or there is some t
+% such that t → t'
+rec progress : [⊢ hastype M T] → [⊢ prog M] =
+/ total 1 /
+fn D ⇒ case D of
+  | [⊢ t/lam \x. \u. D'] ⇒ [⊢ p/val v/lam]
+  | [⊢ t/app D1 D2] ⇒ (
+      let [⊢ P1] = progress [⊢ D1] in
+      case [⊢ P1] of
+        | [⊢ p/val v/lam] ⇒ ( % we destructure V1 directly here
+            let [⊢ P2] = progress [⊢ D2] in
+            case [⊢ P2] of
+              | [⊢ p/val V2] ⇒ [⊢ p/step (e/abs V2)]
+              | [⊢ p/step E] ⇒ [⊢ p/step (e/app2 v/lam E)]
+          )
+        | [⊢ p/step E] ⇒ [⊢ p/step (e/app1 E)]
+    )
+  % TODO complete me
+  | [⊢ t/let-value] ⇒ ?
+  | [⊢ t/let-name] ⇒ ?
+  | [⊢ t/match] ⇒ ?
+  | [⊢ t/fix] ⇒ ?
+
+;
+
+
+% ------------------------------------------------------------------------------
+% Type Uniqueness
+% ------------------------------------------------------------------------------
+
+% TODO try modifying the definitions of tm and hastype to include our new language features
+% then complete the proof
+
+% λ-terms with type annotation
+LF tm : type =
+  | app : tm → tm → tm
+  | lam : tp → (tm → tm) → tm % lam : (tm → tm) → tm
+  % TODO complete me
+;
+
+% Typing relation with explicit context
+LF hastype: tm -> tp -> type =
+  | t/lam : ({x:tm}hastype x T → hastype (M x) S)
+            → hastype (lam T M) (arr T S) % → hastype (lam M) (arr T S)
+  | t/app : hastype M (arr T S) → hastype N T
+            → hastype (app M N) S
+  % TODO complete me
+;
+
+LF eq: tp -> tp -> type =
+  | refl: eq T T
+;
+
+schema tctx = some [t:tp] block (x:tm, u:hastype x t);
+
+% THM (Uniqueness): If D ∷ Γ ⊢ M : T and E ∷ Γ ⊢ M : T', then ⊢ T = T'
+rec unique : (Γ:tctx)[Γ ⊢ hastype M T[]] → [Γ ⊢ hastype M T'[]] → [⊢ eq T T'] =
+/ total 1 /
+fn D ⇒ fn E ⇒ case D of
+  | [Γ ⊢ t/app D1 D2] ⇒
+      let [Γ ⊢ t/app E1 E2] = E in
+      let [⊢ refl] = unique [Γ ⊢ D1] [Γ ⊢ E1] in
+      [⊢ refl]
+
+  | [Γ ⊢ t/lam \x. \u. D'] ⇒
+      let [Γ ⊢ t/lam \x. \u. E'] = E in
+      let [⊢ refl] = unique [Γ, b:block(x:tm, u:hastype x _) ⊢ D'[.., b.1, b.2]]
+                            [Γ, b ⊢ E'[.., b.1, b.2]] in
+      [⊢ refl]
+
+  | [Γ ⊢ #q.2] ⇒
+      let [Γ ⊢ #r.2] = E in
+      [⊢ refl]
+  % TODO complete me
+;
+
+% ------------------------------------------------------------------------------
+%  Uniqueness of Small Step
+% ------------------------------------------------------------------------------
+%
+
+rec valuesdontstep : [⊢ value t] → [⊢ step t t'] → [⊢ ⊥] =
+/ total 1 /
+fn V D ⇒ ?
+% TODO
+;
+
+
+rec determinancy : [⊢ step t t'] → [⊢ step t t''] → [⊢ eq t' t''] =
+/ total 1 /
+fn D E ⇒ ?
+% TODO
+;
