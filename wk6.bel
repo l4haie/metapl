@@ -1,0 +1,112 @@
+
+%We begin by defining our oh-so-beloved λ-calculus
+LF tp : type = 
+| b : tp
+| arr : tp → tp → tp
+
+;
+
+LF tm : tp → type = 
+| i : tm b
+| app : tm (arr T S) → tm T → tm S
+| lam : (tm T → tm S) → tm (arr T S)
+
+;
+
+LF step : tm T → tm T → type = 
+| beta : step (app (lam M) N) (M N) %We recall our Beluga trick for this rule!
+| stepapp: step M M' → step (app M N) (app M' N)
+
+;
+
+LF val : tm T → type = 
+| val/i : val i
+| val/lam : val (lam M)
+
+;
+%Q: This is the intrinsically typed representation of our language and types. How is this similar and how is this different from the representation that we've used so far?
+
+%In order to think about normalization, we need a way to think about how terms change over multiple steps, so we introduce the multi-step relation
+
+LF mstep : tm T → tm T → type = 
+| refl : mstep M M
+| nstep : step M N → mstep N M' → mstep M M'
+
+;
+
+%Finally we define our notion of halting quite intuitively. If a term eventually steps to a value, then it halts.
+LF halts : tm T → type = 
+| halts/i : mstep M M' → val M' → halts M
+
+;
+
+%In order to continue with our normalization proof we recall that we need to define our reducibility candidates. We recall that our definition requires us to encode the logic of 'A M: T → S ∈ R_{T → S} iff M halts and ∀N ∈ R_S, M N ∈ R_S'. We've come upon a limitation in the LF layer of Beluga: We can't quantify! As such, we'll use a stratified type here.
+
+stratified reduce : {A: [⊢ tp]} {M: [⊢ tm A]} ctype = 
+| R/i : [⊢ halts M ] → reduce [⊢ b] [⊢ M]
+| R/arr : [⊢ halts M] → ({N: [⊢ tm A]} reduce [⊢ A] [⊢ N] → reduce [⊢ B] [⊢ app M N]) → reduce [⊢ arr A B] [⊢ M]
+
+;
+
+%Now some plug-and-chug lemmas
+
+rec onehalts : {S: [⊢ step M M']} [⊢ halts M'] → [⊢ halts M] = 
+mlam S ⇒ fn D ⇒
+let [⊢ halts/i N E] = D in [⊢ halts/i (nstep S N) E]
+
+;
+
+rec redhalt : reduce [⊢ T] [⊢ M] → [⊢ halts M] = 
+fn D ⇒ case D of
+| R/i A ⇒ A
+| R/arr A B ⇒ A
+
+;
+%Now here's some fun stuff.
+rec bclosed' : {T : [⊢ tp]}{M : [⊢ tm T]}{M' : [⊢ tm T]}{S: [⊢ step M M']} reduce [⊢ T] [⊢ M'] → reduce [⊢ T] [⊢ M] = 
+mlam T, M, M', S ⇒ fn D ⇒ case [⊢ T] of
+| [⊢ b] ⇒
+		let R/i D' = D in
+		let [⊢ E] = onehalts [⊢ S] D' in
+		R/i [⊢ E]
+| [⊢ arr A B] ⇒? %Try this guy!
+
+;
+%You'll see why we need this later!
+rec bclosed : {S:[ ⊢ step M M']} reduce [⊢ A] [ ⊢ M'] → reduce [|- A] [ |- M] = 
+mlam S => fn r => 
+let [|- S] : [|- step M M'] = [|- S] in 
+let [|- M] : [|- tm A]    = [|- M] in
+  bclosed' [|- A ] [|- M ] [|- M' ]  [|- S] r
+  
+;
+%This is a little different than the proof in the book, though I'm pretty sure its still correct. I guess we'll see!
+
+%Now to define a reducible substitution
+schema ctx = tm T ;
+inductive rsub : {Γ : ctx}{$σ : $[ ⊢ Γ]} ctype = 
+| nil : rsub [^] $[ ⊢ ^]
+| dot : rsub [Γ] $[ ⊢ $σ] → reduce [ ⊢ T] [ ⊢ M] → rsub [Γ, x : tm T[]] $[ ⊢ $σ[], M]
+
+;
+
+%Q: Why do we need this?
+rec lookup : {Γ : ctx}{#p : #[Γ ⊢ tm T[]]} rsub [Γ] $[⊢ $σ] → reduce [⊢ T] [⊢ #p[$σ]] = 
+mlam Γ, #p ⇒ fn D ⇒ case [Γ] of
+| [] ⇒ impossible [⊢ #p]
+| [Γ',  x: tm T] ⇒ ? % Try this guy
+;
+
+%You all have not seen this but the above little block of code took me hours. Beluga and substitutions still boggle my mind. Anyways, time for the fundamental lemma!
+
+rec main : {Γ : ctx}{M : [Γ ⊢ tm T[]]} rsub [Γ] $[⊢ $σ] → reduce [⊢ T] [⊢ M[$σ]] = 
+mlam Γ, M ⇒ fn D ⇒ case [Γ ⊢ M] of
+| [Γ ⊢ #p] ⇒ lookup [Γ] [Γ ⊢ #p] D
+| [Γ ⊢ i] ⇒ let E = [⊢ halts/i refl (val/i)] in R/i E
+| [Γ ⊢ app A B] ⇒? 
+| [Γ ⊢ lam \x. A] ⇒ ? %And these guys too!
+
+;
+%Time for the finale! Finish her off!
+
+;
